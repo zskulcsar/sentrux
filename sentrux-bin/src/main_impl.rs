@@ -8,6 +8,7 @@
 //! - Gate mode (`sentrux gate [--save] [path]`): structural regression testing
 
 use clap::{Parser, Subcommand};
+use serde_json::json;
 use sentrux_core::analysis;
 use sentrux_core::app;
 use sentrux_core::core;
@@ -80,6 +81,13 @@ enum Command {
         save: bool,
 
         /// Directory to gate
+        #[arg(default_value = ".")]
+        path: String,
+    },
+
+    /// Get quality signal with root cause breakdown (modularity, acyclicity, depth, equality, redundancy)
+    Health {
+        /// Directory to analyze
         #[arg(default_value = ".")]
         path: String,
     },
@@ -204,6 +212,9 @@ pub fn run() -> eframe::Result<()> {
         }
         Some(Command::Gate { save, path }) => {
             std::process::exit(run_gate(&path, save));
+        }
+        Some(Command::Health { path }) => {
+            std::process::exit(run_health(&path));
         }
         Some(Command::Mcp) => {
             app::mcp_server::run_mcp_server(None);
@@ -589,6 +600,94 @@ fn gate_compare(
         println!("\n✓ No degradation detected");
         0
     }
+}
+
+// ---------------------------------------------------------------------------
+// Health
+// ---------------------------------------------------------------------------
+
+/// Run health check and output JSON. Returns exit code.
+fn run_health(path: &str) -> i32 {
+    let root = std::path::Path::new(path);
+    if !root.is_dir() {
+        eprintln!("Error: not a directory: {path}");
+        return 1;
+    }
+
+    let result = match analysis::scanner::scan_directory(
+        path, None, None,
+        &cli_scan_limits(),
+        None,
+    ) {
+        Ok(r) => r,
+        Err(e) => {
+            eprintln!("Scan failed: {e}");
+            return 1;
+        }
+    };
+
+    let health = metrics::compute_health(&result.snapshot);
+    let rc = &health.root_cause_scores;
+    let raw = &health.root_cause_raw;
+
+    // Identify the weakest root cause — this is where improvement effort should focus
+    let scores_arr = [
+        ("modularity", rc.modularity),
+        ("acyclicity", rc.acyclicity),
+        ("depth", rc.depth),
+        ("equality", rc.equality),
+        ("redundancy", rc.redundancy),
+    ];
+    let bottleneck = scores_arr.iter()
+        .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap())
+        .map(|(name, _)| *name)
+        .unwrap_or("none");
+
+    let s = |v: f64| -> u32 { (v * 10000.0).round() as u32 };
+    let mut result = json!({
+        "quality_signal": s(health.quality_signal),
+        "bottleneck": bottleneck,
+        "root_causes": {
+            "modularity":  {"score": s(rc.modularity),  "raw": raw.modularity_q},
+            "acyclicity":  {"score": s(rc.acyclicity),  "raw": raw.cycle_count},
+            "depth":       {"score": s(rc.depth),       "raw": raw.max_depth},
+            "equality":    {"score": s(rc.equality),    "raw": raw.complexity_gini},
+            "redundancy":  {"score": s(rc.redundancy),  "raw": raw.redundancy_ratio}
+        },
+        "total_import_edges": health.total_import_edges,
+        "cross_module_edges": health.cross_module_edges
+    });
+
+    // Add Pro diagnostics if available
+    if sentrux_core::pro_registry::has(sentrux_core::pro_registry::ProFeature::McpDiagnostics) {
+        result["diagnostics"] = json!({
+            "modularity": {
+                "god_files": health.god_files.iter().map(|f| json!({"path": f.path, "fan_out": f.value})).collect::<Vec<_>>(),
+                "hotspot_files": health.hotspot_files.iter().map(|f| json!({"path": f.path, "fan_in": f.value})).collect::<Vec<_>>(),
+                "most_unstable": health.most_unstable.iter().take(10).map(|m| json!({"path": m.path, "instability": m.instability, "fan_in": m.fan_in, "fan_out": m.fan_out})).collect::<Vec<_>>(),
+            },
+            "acyclicity": {
+                "cycles": health.circular_dep_files.iter().collect::<Vec<_>>(),
+            },
+            "depth": {
+                "max_depth": health.max_depth,
+            },
+            "equality": {
+                "complex_functions": health.complex_functions.iter().take(20).map(|f| json!({"file": f.file, "func": f.func, "cc": f.value})).collect::<Vec<_>>(),
+                "cog_complex_functions": health.cog_complex_functions.iter().take(20).map(|f| json!({"file": f.file, "func": f.func, "cog": f.value})).collect::<Vec<_>>(),
+                "long_functions": health.long_functions.iter().take(20).map(|f| json!({"file": f.file, "func": f.func, "lines": f.value})).collect::<Vec<_>>(),
+                "large_files": health.long_files.iter().take(10).map(|f| json!({"path": f.path, "lines": f.value})).collect::<Vec<_>>(),
+                "high_param_functions": health.high_param_functions.iter().take(20).map(|f| json!({"file": f.file, "func": f.func, "params": f.value})).collect::<Vec<_>>(),
+            },
+            "redundancy": {
+                "dead_functions": health.dead_functions.iter().take(50).map(|f| json!({"file": f.file, "func": f.func, "lines": f.value})).collect::<Vec<_>>(),
+                "duplicate_groups": health.duplicate_groups.iter().take(20).map(|g| json!({"instances": g.instances.iter().map(|(file, func, lines)| json!({"file": file, "func": func, "lines": lines})).collect::<Vec<_>>()})).collect::<Vec<_>>(),
+            },
+        });
+    }
+
+    println!("{}", serde_json::to_string_pretty(&result).unwrap());
+    0
 }
 
 // ---------------------------------------------------------------------------
