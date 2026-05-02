@@ -188,7 +188,7 @@ pub fn run() -> eframe::Result<()> {
     sentrux_core::analysis::plugin::sync_embedded_plugins();
 
     // Non-blocking update check (once per day, background thread)
-    app::update_check::check_for_updates_async(env!("CARGO_PKG_VERSION"));
+    //app::update_check::check_for_updates_async(env!("CARGO_PKG_VERSION"));
 
     let cli = Cli::parse();
 
