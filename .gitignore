@@ -23,3 +23,5 @@ target/
 .claude/
 .wrangler/
 sentrux-core/src/analysis/plugin/embedded.rs
+
+.envrc
