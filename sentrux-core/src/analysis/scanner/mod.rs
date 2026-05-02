@@ -140,7 +140,7 @@ fn collect_paths_git(root: &Path, file_size_limit: u64) -> Option<Vec<CollectedF
 
     let dropped = total_git - files.len();
     if dropped > 0 {
-        eprintln!(
+        crate::debug_log!(
             "[scan] git ls-files: {} total, {} kept, {} dropped (ext:{}, meta:{}, big:{})",
             total_git, files.len(), dropped, ignored_ext, meta_fail, too_big
         );

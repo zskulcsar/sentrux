@@ -111,7 +111,7 @@ pub(crate) fn resolve_path_imports_ref(files: &[&FileNode], scan_root: Option<&P
     let edges = resolve_tier2_imports(files, &known_files, &project_map, &suffix_index, &exts, &path_aliases);
     let t_total = t0.elapsed();
 
-    eprintln!(
+    crate::debug_log!(
         "[resolve_imports] project_map {:.1}ms, suffix_idx {:.1}ms, suffix_resolve {:.1}ms, total {:.1}ms",
         t_project_map.as_secs_f64() * 1000.0,
         (t_suffix - t_project_map).as_secs_f64() * 1000.0,
@@ -213,7 +213,7 @@ fn resolve_tier2_imports(
     let resolved = stats.resolved_count.load(std::sync::atomic::Ordering::Relaxed);
     let total_specs = resolved + unresolved;
     if total_specs > 0 {
-        eprintln!(
+        crate::debug_log!(
             "[resolve] {} resolved, {} unresolved (of {} total specs)",
             resolved, unresolved, total_specs
         );
@@ -300,7 +300,7 @@ fn build_project_map(files: &[&FileNode], scan_root: &Path) -> HashMap<String, S
         };
         project_map.insert(file.path.clone(), project_root);
     }
-    eprintln!(
+    crate::debug_log!(
         "[build_project_map] {} files, {} unique dirs, {} cache misses, {:.1}ms",
         files.len(), dir_cache.len(), cache_misses, t0.elapsed().as_secs_f64() * 1000.0
     );

@@ -166,7 +166,7 @@ fn log_build_graphs_timing(
     inherit_edges: &[InheritEdge],
 ) {
     let t_total = t0.elapsed();
-    eprintln!(
+    crate::debug_log!(
         "[build_graphs] {} files | maps {:.1}ms, imports {:.1}ms, calls+inherit {:.1}ms, total {:.1}ms | {} import, {} call, {} inherit edges",
         file_count,
         t_maps.as_secs_f64() * 1000.0,
